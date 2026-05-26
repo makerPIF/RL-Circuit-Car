@@ -1,0 +1,1463 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>SRC 자율주행 차선인식 시스템</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Exo+2:wght@300;400;600&display=swap');
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#030810; --surface:rgba(5,18,38,0.92); --surface2:rgba(0,25,55,0.85);
+  --cyan:#00e5ff; --green:#00ff88; --amber:#ffaa00; --red:#ff3355; --blue:#2979ff;
+  --purple:#bb86fc; --text:#c8e8ff; --muted:#4a6070; --border:rgba(0,229,255,0.22);
+  --glow:0 0 18px rgba(0,229,255,0.45); --glow-g:0 0 18px rgba(0,255,136,0.45);
+  --font-hud:'Orbitron','Courier New',monospace;
+  --font-data:'Share Tech Mono','Courier New',monospace;
+  --font-ui:'Exo 2',system-ui,sans-serif;
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font-ui)}
+
+/* ── OPENING ───────────────────────────────────────── */
+#opening{
+  position:fixed;inset:0;z-index:9999;background:#000;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  overflow:hidden;transition:opacity 0.8s ease;
+}
+#opening.fade-out{opacity:0;pointer-events:none}
+.road-bg{position:absolute;inset:0;background:linear-gradient(to bottom,#050508 0%,#0a1020 40%,#111825 100%)}
+.road-lines{
+  position:absolute;left:50%;top:-200px;width:4px;height:200%;
+  background:repeating-linear-gradient(to bottom,transparent 0px,transparent 40px,var(--amber) 40px,var(--amber) 90px);
+  transform:translateX(-50%);animation:roadScroll 0.8s linear infinite;
+}
+.road-edge-l,.road-edge-r{
+  position:absolute;top:-200px;width:3px;height:200%;
+  background:linear-gradient(to bottom,transparent 0%,var(--cyan) 20%,var(--cyan) 80%,transparent 100%);
+  animation:roadScroll 0.8s linear infinite;
+}
+.road-edge-l{left:15%;opacity:0.6} .road-edge-r{right:15%;opacity:0.6}
+.lane-dots{
+  position:absolute;top:-200px;width:100%;height:200%;
+  background:repeating-linear-gradient(to bottom,transparent 0px,transparent 60px,rgba(0,229,255,0.08) 60px,rgba(0,229,255,0.08) 62px);
+  animation:roadScroll 0.6s linear infinite;
+}
+@keyframes roadScroll{0%{transform:translateY(0)}100%{transform:translateY(130px)}}
+.road-glow{
+  position:absolute;bottom:-100px;left:50%;transform:translateX(-50%);
+  width:600px;height:300px;
+  background:radial-gradient(ellipse at center bottom,rgba(0,229,255,0.12) 0%,transparent 70%);
+}
+.open-logo{position:relative;z-index:2;text-align:center;animation:logoReveal 1.2s cubic-bezier(0.16,1,0.3,1) 0.3s both}
+@keyframes logoReveal{from{opacity:0;transform:translateY(40px) scale(0.9);filter:blur(10px)}to{opacity:1;transform:none;filter:none}}
+.open-logo h1{
+  font-family:var(--font-hud);font-size:clamp(60px,12vw,120px);font-weight:900;
+  letter-spacing:0.25em;color:var(--cyan);
+  text-shadow:0 0 30px var(--cyan),0 0 80px rgba(0,229,255,0.4),0 0 2px #fff;
+  animation:glitch 4s ease-in-out 1.5s infinite;
+}
+@keyframes glitch{
+  0%,92%,100%{text-shadow:0 0 30px var(--cyan),0 0 80px rgba(0,229,255,0.4);transform:none}
+  93%{transform:translateX(-3px);text-shadow:-3px 0 var(--red),3px 0 var(--green)}
+  94%{transform:translateX(3px);text-shadow:3px 0 var(--red),-3px 0 var(--green)}
+  95%,97%{transform:none} 96%{transform:translateX(-1px)}
+}
+.open-subtitle{font-family:var(--font-data);font-size:clamp(11px,2vw,18px);letter-spacing:0.3em;color:var(--muted);margin-top:8px;animation:fadeUp 1s ease 1s both}
+.open-tagline{font-family:var(--font-data);font-size:clamp(9px,1.5vw,13px);letter-spacing:0.2em;color:rgba(0,229,255,0.5);margin-top:4px;animation:fadeUp 1s ease 1.2s both}
+.open-progress-wrap{position:relative;z-index:2;margin-top:48px;width:clamp(260px,50vw,500px);animation:fadeUp 0.8s ease 1.5s both}
+.open-progress-label{font-family:var(--font-data);font-size:10px;letter-spacing:0.3em;color:var(--muted);margin-bottom:8px;text-align:center}
+.open-progress-bar{height:3px;background:rgba(0,229,255,0.15);border-radius:3px;overflow:hidden}
+.open-progress-fill{height:100%;background:linear-gradient(90deg,var(--cyan),var(--green));border-radius:3px;width:0%;transition:width 0.1s linear;box-shadow:0 0 10px var(--cyan)}
+.open-ap-info{margin-top:16px;font-family:var(--font-data);font-size:11px;color:rgba(0,229,255,0.4);text-align:center;letter-spacing:0.15em;animation:fadeUp 0.8s ease 1.8s both}
+@keyframes fadeUp{from{opacity:0;transform:translateY(15px)}to{opacity:1;transform:none}}
+
+/* ── MAIN APP ───────────────────────────────────────── */
+#app{display:none;flex-direction:column;width:100%;height:100vh;background:var(--bg)}
+#app.visible{display:flex;animation:appReveal 0.6s ease both}
+@keyframes appReveal{from{opacity:0}to{opacity:1}}
+
+/* 헤더 */
+.app-header{
+  flex-shrink:0;height:46px;background:var(--surface);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 14px;gap:14px;
+}
+.hdr-logo{font-family:var(--font-hud);font-size:16px;font-weight:900;letter-spacing:0.2em;color:var(--cyan);text-shadow:var(--glow)}
+.hdr-sep{width:1px;height:22px;background:var(--border)}
+.hdr-stat{font-family:var(--font-data);font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px}
+.hdr-stat .val{color:var(--cyan)}
+.hdr-dot{width:7px;height:7px;border-radius:50%;background:var(--red);box-shadow:0 0 6px var(--red);transition:all 0.3s}
+.hdr-dot.on{background:var(--green);box-shadow:0 0 8px var(--green)}
+.hdr-spacer{flex:1}
+/* 카메라 소스 배지 */
+.hdr-src-badge{
+  font-family:var(--font-hud);font-size:9px;letter-spacing:0.15em;
+  padding:3px 9px;border-radius:20px;border:1px solid var(--border);
+  color:var(--muted);background:var(--surface2);transition:all 0.3s;
+}
+.hdr-src-badge.esp32{color:var(--cyan);border-color:var(--cyan);background:rgba(0,229,255,0.1)}
+.hdr-src-badge.webcam{color:var(--purple);border-color:var(--purple);background:rgba(187,134,252,0.1)}
+.hdr-ap{font-family:var(--font-data);font-size:10px;color:rgba(0,229,255,0.35);letter-spacing:0.1em}
+
+/* 레이아웃 */
+.app-body{flex:1;overflow:hidden;display:flex;gap:8px;padding:8px}
+
+/* 비디오 패널 */
+.video-panel{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0}
+.canvas-wrapper{
+  flex:1;position:relative;background:#000;
+  border:1px solid var(--border);border-radius:8px;overflow:hidden;min-height:0;
+}
+.canvas-wrapper::after{
+  content:'';position:absolute;inset:0;pointer-events:none;z-index:3;
+  background:repeating-linear-gradient(to bottom,transparent 0px,transparent 3px,rgba(0,0,0,0.05) 3px,rgba(0,0,0,0.05) 4px);
+}
+#videoCanvas,#overlayCanvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+#overlayCanvas{z-index:2;pointer-events:none}
+/* webcam용 숨겨진 video 요소 */
+#webcamVideo{position:absolute;top:-9999px;left:-9999px;width:1px;height:1px}
+
+/* HUD 레이어 */
+.hud-tl,.hud-tr,.hud-bl,.hud-br{position:absolute;z-index:4;font-family:var(--font-data);font-size:11px;padding:6px 10px;pointer-events:none}
+.hud-tl{top:8px;left:8px;color:var(--green)}
+.hud-tr{top:8px;right:8px;color:var(--cyan);text-align:right}
+.hud-bl{bottom:8px;left:8px;color:var(--amber)}
+.hud-br{bottom:8px;right:8px;color:var(--text);text-align:right}
+/* 차선 인식 상태 배너 (중앙 상단) */
+.hud-center{
+  position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:4;
+  font-family:var(--font-hud);font-size:10px;letter-spacing:0.15em;
+  padding:4px 14px;border-radius:20px;pointer-events:none;
+  background:rgba(3,8,16,0.75);border:1px solid rgba(0,229,255,0.2);
+  color:var(--muted);transition:all 0.3s;
+}
+.hud-center.both{color:var(--green);border-color:var(--green);background:rgba(0,255,136,0.08)}
+.hud-center.one{color:var(--amber);border-color:var(--amber);background:rgba(255,170,0,0.08)}
+.hud-center.none{color:var(--red);border-color:var(--red);background:rgba(255,51,85,0.08)}
+
+/* 코너 장식 */
+.corner{position:absolute;width:18px;height:18px;z-index:5;pointer-events:none}
+.corner.tl{top:5px;left:5px;border-top:2px solid var(--cyan);border-left:2px solid var(--cyan)}
+.corner.tr{top:5px;right:5px;border-top:2px solid var(--cyan);border-right:2px solid var(--cyan)}
+.corner.bl{bottom:5px;left:5px;border-bottom:2px solid var(--cyan);border-left:2px solid var(--cyan)}
+.corner.br{bottom:5px;right:5px;border-bottom:2px solid var(--cyan);border-right:2px solid var(--cyan)}
+
+/* 오프라인 화면 */
+#noStream{
+  position:absolute;inset:0;z-index:10;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;background:rgba(3,8,16,0.95);
+}
+#noStream .ns-icon{font-size:48px;margin-bottom:14px}
+#noStream .ns-title{font-family:var(--font-hud);font-size:16px;color:var(--muted);letter-spacing:0.2em}
+#noStream .ns-hint{font-family:var(--font-data);font-size:11px;color:rgba(0,229,255,0.35);margin-top:8px;letter-spacing:0.1em}
+
+/* 미니뷰 */
+.mini-views{flex-shrink:0;height:100px;display:flex;gap:8px}
+.mini-view{flex:1;background:#000;border:1px solid var(--border);border-radius:6px;overflow:hidden;position:relative}
+.mini-view canvas{width:100%;height:100%;object-fit:contain}
+.mini-label{position:absolute;top:4px;left:6px;font-family:var(--font-data);font-size:9px;color:var(--muted);letter-spacing:0.15em;pointer-events:none;z-index:2}
+
+/* ── 제어 패널 ──────────────────────────────────────── */
+.ctrl-panel{
+  width:295px;flex-shrink:0;display:flex;flex-direction:column;gap:7px;
+  overflow-y:auto;overflow-x:hidden;padding-right:2px;
+}
+.ctrl-panel::-webkit-scrollbar{width:4px}
+.ctrl-panel::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;flex-shrink:0}
+.panel-title{font-family:var(--font-hud);font-size:9px;letter-spacing:0.25em;color:var(--cyan);text-transform:uppercase;margin-bottom:9px;opacity:0.8}
+
+/* ── 카메라 소스 탭 ─────────────────────────────────── */
+.src-tabs{display:flex;gap:4px;margin-bottom:10px}
+.src-tab{
+  flex:1;padding:8px 4px;border-radius:6px;border:1px solid var(--border);
+  background:var(--surface2);color:var(--muted);cursor:pointer;
+  font-family:var(--font-hud);font-size:8px;letter-spacing:0.12em;
+  text-align:center;transition:all 0.18s;
+}
+.src-tab:hover{color:var(--text);border-color:rgba(0,229,255,0.4)}
+.src-tab.active.esp32-tab{color:var(--cyan);border-color:var(--cyan);background:rgba(0,229,255,0.1);box-shadow:var(--glow)}
+.src-tab.active.webcam-tab{color:var(--purple);border-color:var(--purple);background:rgba(187,134,252,0.1);box-shadow:0 0 14px rgba(187,134,252,0.35)}
+
+/* ESP32 서브패널 */
+.sub-panel{display:none}
+.sub-panel.visible{display:block}
+
+/* 입력 공통 */
+.row{display:flex;gap:6px;align-items:center;margin-bottom:7px}
+.txt-input{
+  flex:1;background:rgba(0,229,255,0.06);border:1px solid var(--border);
+  border-radius:5px;color:var(--text);font-family:var(--font-data);font-size:13px;
+  padding:7px 9px;outline:none;transition:border-color 0.2s;
+}
+.txt-input:focus{border-color:var(--cyan)}
+.txt-small{font-family:var(--font-data);font-size:11px;color:var(--muted);white-space:nowrap}
+
+/* 버튼 공통 */
+.btn{
+  padding:8px 13px;border-radius:5px;cursor:pointer;
+  font-family:var(--font-hud);font-size:9px;letter-spacing:0.15em;
+  transition:all 0.2s;white-space:nowrap;border:1px solid;
+}
+.btn-cyan{color:var(--cyan);border-color:var(--cyan);background:rgba(0,229,255,0.1)}
+.btn-cyan:hover{background:rgba(0,229,255,0.22);box-shadow:var(--glow)}
+.btn-cyan:disabled{opacity:0.35;cursor:not-allowed}
+.btn-purple{color:var(--purple);border-color:var(--purple);background:rgba(187,134,252,0.1)}
+.btn-purple:hover{background:rgba(187,134,252,0.22);box-shadow:0 0 14px rgba(187,134,252,0.35)}
+.btn-purple:disabled{opacity:0.35;cursor:not-allowed}
+.btn-red{color:var(--red);border-color:var(--red);background:rgba(255,51,85,0.1)}
+.btn-red:hover{background:rgba(255,51,85,0.22)}
+.btn-green{color:var(--green);border-color:var(--green);background:rgba(0,255,136,0.1)}
+.btn-green:hover{background:rgba(0,255,136,0.22);box-shadow:var(--glow-g)}
+.btn-green:disabled{opacity:0.35;cursor:not-allowed}
+
+/* 연결 상태 */
+.conn-status{font-family:var(--font-data);font-size:11px;color:var(--red);display:flex;align-items:center;gap:5px}
+.conn-status.ok{color:var(--green)}
+
+/* 웹캠 셀렉터 */
+.cam-select{
+  width:100%;background:rgba(0,229,255,0.06);border:1px solid var(--border);
+  border-radius:5px;color:var(--text);font-family:var(--font-data);font-size:12px;
+  padding:7px 9px;outline:none;margin-bottom:7px;cursor:pointer;
+}
+.cam-select:focus{border-color:var(--purple)}
+.cam-select option{background:#0a1828;color:var(--text)}
+
+/* 웹캠 옵션 행 */
+.cam-opts{display:flex;gap:6px;margin-bottom:7px;flex-wrap:wrap}
+.opt-btn{
+  padding:5px 10px;border-radius:4px;border:1px solid var(--border);
+  background:var(--surface2);color:var(--muted);font-family:var(--font-data);
+  font-size:10px;cursor:pointer;transition:all 0.15s;
+}
+.opt-btn.on{color:var(--purple);border-color:var(--purple);background:rgba(187,134,252,0.1)}
+
+/* 색상 버튼 */
+.color-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
+.btn-color{
+  padding:10px 4px;border-radius:6px;border:2px solid transparent;cursor:pointer;
+  font-family:var(--font-hud);font-size:8px;letter-spacing:0.1em;font-weight:700;
+  transition:all 0.15s;display:flex;flex-direction:column;align-items:center;gap:4px;
+}
+.btn-color .color-dot{width:16px;height:16px;border-radius:50%;border:1px solid rgba(255,255,255,0.2)}
+.btn-color:active{transform:scale(0.93)}
+.btn-color.white-btn{background:rgba(255,255,255,0.08);color:#e0e0e0;border-color:rgba(255,255,255,0.25)}
+.btn-color.white-btn .color-dot{background:#fff}
+.btn-color.white-btn.active{border-color:#fff;background:rgba(255,255,255,0.18);box-shadow:0 0 12px rgba(255,255,255,0.5)}
+.btn-color.red-btn{background:rgba(255,51,85,0.1);color:#ff5577;border-color:rgba(255,51,85,0.3)}
+.btn-color.red-btn .color-dot{background:#ff3355}
+.btn-color.red-btn.active{border-color:var(--red);background:rgba(255,51,85,0.25);box-shadow:0 0 12px var(--red)}
+.btn-color.black-btn{background:rgba(80,80,80,0.2);color:#8a8a8a;border-color:rgba(100,100,100,0.3)}
+.btn-color.black-btn .color-dot{background:#1a1a1a;border-color:#555}
+.btn-color.black-btn.active{border-color:#aaa;background:rgba(80,80,80,0.4);box-shadow:0 0 12px rgba(150,150,150,0.4)}
+.btn-color.blue-btn{background:rgba(41,121,255,0.1);color:#5599ff;border-color:rgba(41,121,255,0.3)}
+.btn-color.blue-btn .color-dot{background:#2979ff}
+.btn-color.blue-btn.active{border-color:var(--blue);background:rgba(41,121,255,0.25);box-shadow:0 0 12px var(--blue)}
+.btn-color.yellow-btn{background:rgba(255,170,0,0.1);color:#ffcc33;border-color:rgba(255,170,0,0.3)}
+.btn-color.yellow-btn .color-dot{background:#ffcc00}
+.btn-color.yellow-btn.active{border-color:var(--amber);background:rgba(255,170,0,0.25);box-shadow:0 0 12px var(--amber)}
+
+/* HSV 슬라이더 */
+.hsv-grid{display:grid;gap:7px}
+.hsv-row{display:flex;align-items:center;gap:7px}
+.hsv-lbl{font-family:var(--font-data);font-size:10px;color:var(--muted);width:42px;flex-shrink:0;letter-spacing:0.05em}
+.hsv-slider{flex:1;-webkit-appearance:none;appearance:none;height:4px;border-radius:2px;outline:none;cursor:pointer;background:var(--surface2)}
+.hsv-slider::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--cyan);cursor:pointer;box-shadow:0 0 6px var(--cyan)}
+.hsv-slider.s-slider::-webkit-slider-thumb{background:#aaa;box-shadow:0 0 6px #aaa}
+.hsv-slider.v-slider::-webkit-slider-thumb{background:#fff;box-shadow:0 0 6px #fff}
+.hsv-val{font-family:var(--font-data);font-size:10px;color:var(--cyan);width:28px;text-align:right;flex-shrink:0}
+
+/* 감지 토글 */
+.detect-toggle{display:flex;align-items:center;justify-content:space-between;padding:7px 0}
+.toggle-label{font-family:var(--font-data);font-size:11px;color:var(--text)}
+.toggle-switch{position:relative;width:42px;height:22px}
+.toggle-switch input{opacity:0;width:0;height:0}
+.toggle-track{position:absolute;cursor:pointer;inset:0;background:rgba(0,229,255,0.1);border:1px solid var(--border);border-radius:22px;transition:0.2s}
+.toggle-track::before{content:'';position:absolute;width:16px;height:16px;left:2px;bottom:2px;background:var(--muted);border-radius:50%;transition:0.2s}
+input:checked+.toggle-track{background:rgba(0,255,136,0.15);border-color:var(--green)}
+input:checked+.toggle-track::before{transform:translateX(20px);background:var(--green);box-shadow:0 0 6px var(--green)}
+
+/* D패드 */
+.dpad-wrap{display:flex;gap:12px;align-items:center}
+.dpad{display:grid;grid-template-columns:repeat(3,54px);grid-template-rows:repeat(3,54px);gap:4px;flex-shrink:0}
+.dpad-btn{
+  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+  color:var(--text);font-size:22px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all 0.1s;user-select:none;-webkit-user-select:none;touch-action:none;
+}
+.dpad-btn:active,.dpad-btn.pressed{background:rgba(0,229,255,0.2);border-color:var(--cyan);box-shadow:var(--glow);transform:scale(0.93)}
+.dpad-center{background:rgba(255,51,85,0.12);border-color:rgba(255,51,85,0.3)}
+.dpad-center:active{background:rgba(255,51,85,0.3);border-color:var(--red);box-shadow:0 0 12px var(--red)}
+
+/* 속도 */
+.speed-wrap{flex:1}
+.speed-label{font-family:var(--font-data);font-size:10px;color:var(--muted);letter-spacing:0.1em;display:flex;justify-content:space-between;margin-bottom:6px}
+.speed-label span{color:var(--cyan)}
+#speedSlider{width:100%;-webkit-appearance:none;appearance:none;height:5px;border-radius:3px;outline:none;cursor:pointer;background:rgba(0,229,255,0.15)}
+#speedSlider::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:var(--cyan);cursor:pointer;box-shadow:0 0 8px var(--cyan)}
+
+/* 자율주행 */
+.auto-row{display:flex;gap:8px}
+.btn-auto{flex:1;padding:12px 8px;border-radius:8px;border:2px solid;cursor:pointer;font-family:var(--font-hud);font-size:10px;letter-spacing:0.12em;font-weight:700;transition:all 0.2s}
+.btn-auto-start{background:rgba(0,255,136,0.1);border-color:var(--green);color:var(--green)}
+.btn-auto-start:hover{background:rgba(0,255,136,0.2);box-shadow:var(--glow-g)}
+.btn-auto-start:disabled{opacity:0.35;cursor:not-allowed}
+.btn-auto-stop{background:rgba(255,51,85,0.1);border-color:var(--red);color:var(--red)}
+.btn-auto-stop:hover{background:rgba(255,51,85,0.2);box-shadow:0 0 14px rgba(255,51,85,0.4)}
+.btn-auto-stop:disabled{opacity:0.35;cursor:not-allowed}
+
+/* 상태 표 */
+.stat-table{width:100%}
+.stat-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid rgba(0,229,255,0.07)}
+.stat-row:last-child{border:none}
+.stat-key{font-family:var(--font-data);font-size:10px;color:var(--muted);letter-spacing:0.05em}
+.stat-val{font-family:var(--font-data);font-size:11px;color:var(--cyan)}
+.stat-val.warn{color:var(--amber)} .stat-val.ok{color:var(--green)} .stat-val.err{color:var(--red)}
+
+/* 로그 */
+#logBox{height:80px;overflow-y:auto;font-family:var(--font-data);font-size:10px;color:rgba(0,229,255,0.5);line-height:1.7}
+#logBox::-webkit-scrollbar{width:3px}
+#logBox::-webkit-scrollbar-thumb{background:var(--border)}
+#logBox p{margin:0} #logBox p.err{color:rgba(255,51,85,0.7)} #logBox p.ok{color:rgba(0,255,136,0.7)}
+
+/* 구분선 */
+.divider{height:1px;background:var(--border);margin:8px 0}
+
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+</style>
+</head>
+<body>
+
+<!-- ══════════ OPENING ══════════ -->
+<div id="opening">
+  <div class="road-bg"></div>
+  <div class="lane-dots"></div>
+  <div class="road-edge-l"></div><div class="road-edge-r"></div>
+  <div class="road-lines"></div>
+  <div class="road-glow"></div>
+  <div class="open-logo">
+    <h1>SRC</h1>
+    <p class="open-subtitle">SRC 자율주행 동아리</p>
+    <p class="open-tagline">AUTONOMOUS DRIVING &amp; LANE RECOGNITION SYSTEM</p>
+  </div>
+  <div class="open-progress-wrap">
+    <p class="open-progress-label" id="openLabel">SYSTEM INITIALIZING...</p>
+    <div class="open-progress-bar"><div class="open-progress-fill" id="openProgress"></div></div>
+    <p class="open-ap-info">AP: SRC1 &nbsp;|&nbsp; 192.168.4.1 &nbsp;|&nbsp; ESP32-CAM &nbsp;|&nbsp; WEBCAM 지원</p>
+  </div>
+</div>
+
+<!-- 숨겨진 webcam video 요소 -->
+<video id="webcamVideo" playsinline muted autoplay></video>
+
+<!-- ══════════ MAIN APP ══════════ -->
+<div id="app">
+  <header class="app-header">
+    <span class="hdr-logo">SRC</span>
+    <div class="hdr-sep"></div>
+    <div class="hdr-stat">
+      <span class="hdr-dot" id="connDot"></span>
+      <span id="connLabel">대기</span>
+    </div>
+    <div class="hdr-sep"></div>
+    <div class="hdr-stat"><span>FPS</span><span class="val" id="fpsHdr">--</span></div>
+    <div class="hdr-sep"></div>
+    <div class="hdr-stat"><span>OFFSET</span><span class="val" id="offsetHdr">--</span></div>
+    <div class="hdr-sep"></div>
+    <div class="hdr-stat"><span>ANGLE</span><span class="val" id="angleHdr">--</span></div>
+    <div class="hdr-spacer"></div>
+    <span class="hdr-src-badge" id="srcBadge">IDLE</span>
+    <div class="hdr-sep"></div>
+    <span class="hdr-ap">SRC1 · 192.168.4.1</span>
+  </header>
+
+  <div class="app-body">
+    <!-- 비디오 영역 -->
+    <div class="video-panel">
+      <div class="canvas-wrapper">
+        <div class="corner tl"></div><div class="corner tr"></div>
+        <div class="corner bl"></div><div class="corner br"></div>
+        <canvas id="videoCanvas"></canvas>
+        <canvas id="overlayCanvas"></canvas>
+        <div class="hud-tl" id="hudMode">● MANUAL</div>
+        <div class="hud-tr" id="hudColor">COLOR: WHITE</div>
+        <div class="hud-bl" id="hudOffset">OFFSET: --</div>
+        <div class="hud-br" id="hudFps">0 FPS</div>
+        <div class="hud-center" id="hudLane">차선 감지 대기</div>
+        <div id="noStream">
+          <div class="ns-icon">📷</div>
+          <div class="ns-title">NO VIDEO SOURCE</div>
+          <div class="ns-hint">카메라 소스를 선택하고 시작하세요</div>
+        </div>
+      </div>
+      <div class="mini-views">
+        <div class="mini-view"><canvas id="maskCanvas"></canvas><div class="mini-label">HSV MASK</div></div>
+        <div class="mini-view"><canvas id="edgeCanvas"></canvas><div class="mini-label">LANE POINTS</div></div>
+        <div class="mini-view"><canvas id="centerCanvas"></canvas><div class="mini-label">CENTER LINE</div></div>
+      </div>
+    </div>
+
+    <!-- 제어 패널 -->
+    <div class="ctrl-panel">
+
+      <!-- ① 카메라 소스 선택 -->
+      <div class="panel">
+        <div class="panel-title">카메라 소스</div>
+        <div class="src-tabs">
+          <button class="src-tab esp32-tab active" id="tabEsp32" onclick="switchSrc('esp32')">
+            📡 ESP32-CAM
+          </button>
+          <button class="src-tab webcam-tab" id="tabWebcam" onclick="switchSrc('webcam')">
+            🎥 웹캠 / 내장캠
+          </button>
+        </div>
+
+        <!-- ESP32-CAM 서브패널 -->
+        <div class="sub-panel visible" id="subEsp32">
+          <div class="row">
+            <input class="txt-input" id="ipInput" type="text" value="192.168.4.1" placeholder="ESP32 IP">
+            <span class="txt-small">:80</span>
+            <button class="btn btn-cyan" id="btnConnect" onclick="toggleEsp32()">연결</button>
+          </div>
+          <div class="conn-status" id="esp32Status"><span>⬤</span><span id="esp32Text">연결 안됨</span></div>
+        </div>
+
+        <!-- 웹캠 서브패널 -->
+        <div class="sub-panel" id="subWebcam">
+          <select class="cam-select" id="camDeviceSelect">
+            <option value="">-- 카메라 장치 선택 --</option>
+          </select>
+          <div class="cam-opts">
+            <button class="opt-btn" id="btnFront" onclick="setCamFacing('user')">전면</button>
+            <button class="opt-btn" id="btnRear"  onclick="setCamFacing('environment')">후면</button>
+            <button class="opt-btn" id="btnMirror" onclick="toggleMirror()">미러</button>
+            <button class="opt-btn" id="btnHD"    onclick="toggleHD()">HD</button>
+          </div>
+          <div class="row">
+            <button class="btn btn-purple" id="btnWebcamStart" onclick="startWebcam()" style="flex:1">▶ 카메라 시작</button>
+            <button class="btn btn-red"   id="btnWebcamStop"  onclick="stopWebcam()"  style="flex:1" disabled>■ 정지</button>
+          </div>
+          <div class="conn-status" id="webcamStatus"><span>⬤</span><span id="webcamText">카메라 미연결</span></div>
+        </div>
+      </div>
+
+      <!-- ② ESP32 모터 연결 (웹캠 모드에서도 표시) -->
+      <div class="panel" id="motorPanel">
+        <div class="panel-title">ESP32 모터 제어 연결</div>
+        <div class="row">
+          <input class="txt-input" id="motorIpInput" type="text" value="192.168.4.1" placeholder="ESP32 IP">
+          <span class="txt-small">:81</span>
+          <button class="btn btn-cyan" id="btnMotorConnect" onclick="toggleMotorConnect()">연결</button>
+        </div>
+        <div class="conn-status" id="motorStatus"><span>⬤</span><span id="motorText">미연결</span></div>
+      </div>
+
+      <!-- ③ 색상 선택 -->
+      <div class="panel">
+        <div class="panel-title">차선 색상 선택</div>
+        <div class="color-grid">
+          <button class="btn-color white-btn active"  data-color="white"  onclick="selectColor('white',this)"><div class="color-dot"></div><span>흰색</span></button>
+          <button class="btn-color red-btn"           data-color="red"    onclick="selectColor('red',this)"><div class="color-dot"></div><span>적색</span></button>
+          <button class="btn-color black-btn"         data-color="black"  onclick="selectColor('black',this)"><div class="color-dot"></div><span>검정</span></button>
+          <button class="btn-color blue-btn"          data-color="blue"   onclick="selectColor('blue',this)"><div class="color-dot"></div><span>파란색</span></button>
+          <button class="btn-color yellow-btn"        data-color="yellow" onclick="selectColor('yellow',this)"><div class="color-dot"></div><span>노란색</span></button>
+        </div>
+      </div>
+
+      <!-- ④ HSV 슬라이더 -->
+      <div class="panel">
+        <div class="panel-title">HSV 파라미터 조정</div>
+        <div class="hsv-grid">
+          <div class="hsv-row"><span class="hsv-lbl">H Min</span><input type="range" class="hsv-slider" id="hMin" min="0" max="180" value="0"   oninput="onHsv()"><span class="hsv-val" id="hMinV">0</span></div>
+          <div class="hsv-row"><span class="hsv-lbl">H Max</span><input type="range" class="hsv-slider" id="hMax" min="0" max="180" value="180" oninput="onHsv()"><span class="hsv-val" id="hMaxV">180</span></div>
+          <div class="hsv-row"><span class="hsv-lbl">S Min</span><input type="range" class="hsv-slider s-slider" id="sMin" min="0" max="255" value="0"   oninput="onHsv()"><span class="hsv-val" id="sMinV">0</span></div>
+          <div class="hsv-row"><span class="hsv-lbl">S Max</span><input type="range" class="hsv-slider s-slider" id="sMax" min="0" max="255" value="40"  oninput="onHsv()"><span class="hsv-val" id="sMaxV">40</span></div>
+          <div class="hsv-row"><span class="hsv-lbl">V Min</span><input type="range" class="hsv-slider v-slider" id="vMin" min="0" max="255" value="180" oninput="onHsv()"><span class="hsv-val" id="vMinV">180</span></div>
+          <div class="hsv-row"><span class="hsv-lbl">V Max</span><input type="range" class="hsv-slider v-slider" id="vMax" min="0" max="255" value="255" oninput="onHsv()"><span class="hsv-val" id="vMaxV">255</span></div>
+        </div>
+        <div class="detect-toggle">
+          <span class="toggle-label">차선 감지 활성화</span>
+          <label class="toggle-switch"><input type="checkbox" id="detectToggle" checked onchange="onDetectToggle()"><div class="toggle-track"></div></label>
+        </div>
+      </div>
+
+      <!-- ⑤ 수동 제어 -->
+      <div class="panel">
+        <div class="panel-title">수동 제어</div>
+        <div class="dpad-wrap">
+          <div class="dpad">
+            <div></div>
+            <div class="dpad-btn" id="dFwd"   ontouchstart="startCmd('forward')"  ontouchend="stopCmd()" onmousedown="startCmd('forward')"  onmouseup="stopCmd()">▲</div>
+            <div></div>
+            <div class="dpad-btn" id="dLeft"  ontouchstart="startCmd('left')"     ontouchend="stopCmd()" onmousedown="startCmd('left')"     onmouseup="stopCmd()">◀</div>
+            <div class="dpad-btn dpad-center"  ontouchstart="startCmd('stop')"    ontouchend="startCmd('stop')" onmousedown="startCmd('stop')">■</div>
+            <div class="dpad-btn" id="dRight" ontouchstart="startCmd('right')"    ontouchend="stopCmd()" onmousedown="startCmd('right')"    onmouseup="stopCmd()">▶</div>
+            <div></div>
+            <div class="dpad-btn" id="dBwd"   ontouchstart="startCmd('backward')" ontouchend="stopCmd()" onmousedown="startCmd('backward')" onmouseup="stopCmd()">▼</div>
+            <div></div>
+          </div>
+          <div class="speed-wrap">
+            <div class="speed-label">속도 <span id="speedVal">200</span></div>
+            <input type="range" id="speedSlider" min="80" max="255" value="200" oninput="document.getElementById('speedVal').textContent=this.value">
+          </div>
+        </div>
+      </div>
+
+      <!-- ⑥ 자율주행 -->
+      <div class="panel">
+        <div class="panel-title">각도 기반 자율주행 (양쪽 차선 중앙 추종)</div>
+        <div class="auto-row">
+          <button class="btn-auto btn-auto-start" id="btnAutoStart" onclick="startAuto()" disabled>▶ 시작</button>
+          <button class="btn-auto btn-auto-stop"  id="btnAutoStop"  onclick="stopAuto()"  disabled>■ 정지</button>
+        </div>
+      </div>
+
+      <!-- ⑦ 상태 -->
+      <div class="panel">
+        <div class="panel-title">실시간 상태</div>
+        <div class="stat-table">
+          <div class="stat-row"><span class="stat-key">소스</span><span class="stat-val" id="srcVal">--</span></div>
+          <div class="stat-row"><span class="stat-key">차선 L/R</span><span class="stat-val" id="laneCount">-- / --</span></div>
+          <div class="stat-row"><span class="stat-key">중앙 오프셋</span><span class="stat-val" id="offsetVal">--</span></div>
+          <div class="stat-row"><span class="stat-key">차선 각도</span><span class="stat-val" id="angleVal">--</span></div>
+          <div class="stat-row"><span class="stat-key">제어 명령</span><span class="stat-val" id="cmdVal">대기</span></div>
+          <div class="stat-row"><span class="stat-key">FPS</span><span class="stat-val" id="fpsVal">--</span></div>
+          <div class="stat-row"><span class="stat-key">처리 지연</span><span class="stat-val" id="procMs">-- ms</span></div>
+        </div>
+      </div>
+
+      <!-- ⑧ 로그 -->
+      <div class="panel">
+        <div class="panel-title">시스템 로그</div>
+        <div id="logBox"></div>
+      </div>
+
+    </div><!-- /ctrl-panel -->
+  </div><!-- /app-body -->
+</div><!-- /app -->
+
+<script>
+/* ════════════════════════════════════════════════════
+   OPENING
+════════════════════════════════════════════════════ */
+const openLabels = ['CAMERA SUBSYSTEM...','LANE DETECTOR...','HSV PROCESSOR...','MOTOR CONTROLLER...','WEBCAM MODULE...','SYSTEM READY ✓'];
+let openIdx = 0;
+const openTimer = setInterval(() => {
+  openIdx++;
+  document.getElementById('openProgress').style.width = (openIdx/openLabels.length*100)+'%';
+  document.getElementById('openLabel').textContent = openLabels[Math.min(openIdx,openLabels.length-1)];
+  if (openIdx >= openLabels.length) { clearInterval(openTimer); setTimeout(launchApp, 500); }
+}, 400);
+
+function launchApp() {
+  document.getElementById('opening').classList.add('fade-out');
+  document.getElementById('app').classList.add('visible');
+  setTimeout(() => document.getElementById('opening').style.display='none', 900);
+  initApp();
+}
+
+/* ════════════════════════════════════════════════════
+   전역 상태
+════════════════════════════════════════════════════ */
+const STATE = {
+  srcMode:      'esp32',    // 'esp32' | 'webcam'
+  esp32Stream:  false,      // ESP32 MJPEG 스트림 상태
+  webcamActive: false,      // 웹캠 활성 상태
+  motorConn:    false,      // 모터(ESP32) 연결 상태
+  autonomous:   false,
+  detecting:    true,
+  colorMode:    'white',
+  speed:        200,
+  lastOffset:   null,
+  lastAngle:    null,
+  lastCmd:      'stop',
+  stopCount:    0,
+  streamUrl:    'http://192.168.4.1',   // ESP32 스트림 base
+  ctrlUrl:      'http://192.168.4.1:81',// ESP32 모터 제어
+  abortCtrl:    null,
+  webcamRAF:    null,
+  mirrorCam:    false,
+  camFacing:    'environment', // 'user' | 'environment'
+  useHD:        false,
+  fpsCount:     0, fpsTimer:0, fps:0,
+};
+
+/* HSV 프리셋 (OpenCV: H 0-180, S 0-255, V 0-255) */
+const HSV_PRESETS = {
+  white:  {hMin:0,  hMax:180,sMin:0,  sMax:40, vMin:180,vMax:255},
+  red:    {hMin:0,  hMax:12, sMin:120,sMax:255,vMin:80, vMax:255},
+  black:  {hMin:0,  hMax:180,sMin:0,  sMax:255,vMin:0,  vMax:55 },
+  blue:   {hMin:100,hMax:130,sMin:100,sMax:255,vMin:50, vMax:255},
+  yellow: {hMin:20, hMax:40, sMin:100,sMax:255,vMin:100,vMax:255},
+};
+let currentHSV = {...HSV_PRESETS.white};
+
+/* ════════════════════════════════════════════════════
+   캔버스 초기화
+════════════════════════════════════════════════════ */
+const videoCanvas   = document.getElementById('videoCanvas');
+const overlayCanvas = document.getElementById('overlayCanvas');
+const maskCanvas    = document.getElementById('maskCanvas');
+const edgeCanvas    = document.getElementById('edgeCanvas');
+const centerCanvas  = document.getElementById('centerCanvas');
+const webcamVideo   = document.getElementById('webcamVideo');
+
+const vCtx  = videoCanvas.getContext('2d');
+const oCtx  = overlayCanvas.getContext('2d');
+const mCtx  = maskCanvas.getContext('2d');
+const eCtx  = edgeCanvas.getContext('2d');
+const cCtx  = centerCanvas.getContext('2d');
+
+// 처리용 오프스크린 (320×240)
+const PROC_W = 320, PROC_H = 240;
+const procCanvas = new OffscreenCanvas(PROC_W, PROC_H);
+const procCtx    = procCanvas.getContext('2d', {willReadFrequently:true});
+
+function resizeCanvases() {
+  const wrap = document.querySelector('.canvas-wrapper');
+  videoCanvas.width = overlayCanvas.width = wrap.clientWidth;
+  videoCanvas.height = overlayCanvas.height = wrap.clientHeight;
+  maskCanvas.width   = maskCanvas.parentElement.clientWidth;
+  maskCanvas.height  = maskCanvas.parentElement.clientHeight;
+  edgeCanvas.width   = edgeCanvas.parentElement.clientWidth;
+  edgeCanvas.height  = edgeCanvas.parentElement.clientHeight;
+  centerCanvas.width = centerCanvas.parentElement.clientWidth;
+  centerCanvas.height= centerCanvas.parentElement.clientHeight;
+}
+
+function initApp() {
+  resizeCanvases();
+  window.addEventListener('resize', resizeCanvases);
+  enumerateCameras();
+  applyHSVPreset('white');
+  log('SRC 자율주행 시스템 초기화 완료', 'ok');
+  log('ESP32-CAM 또는 웹캠을 선택하세요');
+}
+
+/* ════════════════════════════════════════════════════
+   카메라 소스 전환
+════════════════════════════════════════════════════ */
+function switchSrc(mode) {
+  // 현재 소스 정지
+  if (STATE.srcMode === 'esp32' && STATE.esp32Stream) stopEsp32Stream();
+  if (STATE.srcMode === 'webcam' && STATE.webcamActive) stopWebcam();
+
+  STATE.srcMode = mode;
+  document.getElementById('tabEsp32').classList.toggle('active', mode==='esp32');
+  document.getElementById('tabWebcam').classList.toggle('active', mode==='webcam');
+  document.getElementById('subEsp32').classList.toggle('visible', mode==='esp32');
+  document.getElementById('subWebcam').classList.toggle('visible', mode==='webcam');
+
+  // 웹캠 모드에선 motorPanel 항상 표시 (ESP32 모드에서도 표시)
+  const badge = document.getElementById('srcBadge');
+  if (mode === 'esp32') {
+    badge.textContent = 'ESP32-CAM'; badge.className = 'hdr-src-badge esp32';
+    document.getElementById('srcVal').textContent = 'ESP32-CAM';
+  } else {
+    badge.textContent = 'WEBCAM'; badge.className = 'hdr-src-badge webcam';
+    document.getElementById('srcVal').textContent = '웹캠/내장캠';
+  }
+  showNoStream();
+  log(`소스 변경: ${mode === 'esp32' ? 'ESP32-CAM' : '웹캠/내장캠'}`);
+}
+
+function showNoStream() {
+  document.getElementById('noStream').style.display = 'flex';
+}
+function hideNoStream() {
+  document.getElementById('noStream').style.display = 'none';
+}
+
+/* ════════════════════════════════════════════════════
+   ESP32-CAM 스트림
+════════════════════════════════════════════════════ */
+function toggleEsp32() {
+  if (STATE.esp32Stream) stopEsp32Stream();
+  else startEsp32Stream();
+}
+
+async function startEsp32Stream() {
+  const ip = document.getElementById('ipInput').value.trim();
+  STATE.streamUrl = `http://${ip}`;
+  STATE.abortCtrl = new AbortController();
+  STATE.esp32Stream = true;
+  document.getElementById('btnConnect').textContent = '해제';
+  setEsp32Status(false, '연결 중...');
+  log(`ESP32-CAM 연결: ${STATE.streamUrl}/stream`);
+
+  STATE.fpsTimer = performance.now(); STATE.fpsCount = 0;
+
+  try {
+    const res = await fetch(`${STATE.streamUrl}/stream`, {
+      signal: STATE.abortCtrl.signal, cache: 'no-store'
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    setEsp32Status(true, '스트리밍');
+    hideNoStream();
+    log('ESP32-CAM 스트림 시작', 'ok');
+
+    const reader = res.body.getReader();
+    let buf = new Uint8Array(0);
+
+    while (STATE.esp32Stream) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      const nb = new Uint8Array(buf.length + value.length);
+      nb.set(buf); nb.set(value, buf.length); buf = nb;
+
+      // JPEG 프레임 추출
+      while (true) {
+        let soi = -1;
+        for (let i = 0; i < buf.length-1; i++) { if (buf[i]===0xFF&&buf[i+1]===0xD8){soi=i;break} }
+        if (soi === -1) { buf = new Uint8Array(0); break; }
+        let eoi = -1;
+        for (let i = soi+2; i < buf.length-1; i++) { if (buf[i]===0xFF&&buf[i+1]===0xD9){eoi=i;break} }
+        if (eoi === -1) { if (soi>0) buf=buf.slice(soi); break; }
+        const jpeg = buf.slice(soi, eoi+2);
+        buf = buf.slice(eoi+2);
+        onFrame_blob(jpeg);
+      }
+    }
+  } catch(err) {
+    if (err.name !== 'AbortError') {
+      log(`스트림 오류: ${err.message}`, 'err');
+      setEsp32Status(false, '연결 실패');
+      showNoStream();
+      STATE.esp32Stream = false;
+      document.getElementById('btnConnect').textContent = '연결';
+    }
+  }
+}
+
+function stopEsp32Stream() {
+  STATE.esp32Stream = false;
+  if (STATE.abortCtrl) { STATE.abortCtrl.abort(); STATE.abortCtrl = null; }
+  setEsp32Status(false, '연결 안됨');
+  document.getElementById('btnConnect').textContent = '연결';
+  showNoStream();
+  stopAuto();
+  log('ESP32 스트림 해제');
+}
+
+function setEsp32Status(ok, msg) {
+  const el = document.getElementById('esp32Status');
+  const txt = document.getElementById('esp32Text');
+  el.classList.toggle('ok', ok);
+  txt.textContent = msg;
+  if (STATE.srcMode === 'esp32') updateConnHeader(ok, msg);
+}
+
+/* JPEG blob → 화면 출력 (ESP32-CAM용) */
+let lastFramePromise = Promise.resolve();
+function onFrame_blob(jpeg) {
+  lastFramePromise = lastFramePromise.then(async () => {
+    const t0 = performance.now();
+    let bitmap;
+    try { bitmap = await createImageBitmap(new Blob([jpeg], {type:'image/jpeg'})); }
+    catch { return; }
+    const W = videoCanvas.width, H = videoCanvas.height;
+    vCtx.save();
+    if (STATE.mirrorCam) { vCtx.scale(-1,1); vCtx.drawImage(bitmap,-W,0,W,H); }
+    else vCtx.drawImage(bitmap,0,0,W,H);
+    vCtx.restore();
+    bitmap.close();
+    afterFrame(W, H, t0);
+  });
+}
+
+/* ════════════════════════════════════════════════════
+   웹캠 / 내장캠
+════════════════════════════════════════════════════ */
+async function enumerateCameras() {
+  try {
+    // 권한 미리 요청 없이 장치 목록 확인
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cams = devices.filter(d => d.kind === 'videoinput');
+    const sel = document.getElementById('camDeviceSelect');
+    sel.innerHTML = '<option value="">-- 카메라 선택 --</option>';
+    cams.forEach((d, i) => {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `카메라 ${i+1}`;
+      sel.appendChild(opt);
+    });
+    if (cams.length > 0) log(`카메라 장치 ${cams.length}개 발견`);
+  } catch(e) {
+    log('카메라 목록 조회 실패 (브라우저 권한 확인)', 'err');
+  }
+}
+
+async function startWebcam() {
+  const sel = document.getElementById('camDeviceSelect');
+  const deviceId = sel.value;
+  const res = STATE.useHD ? {width:1280,height:720} : {width:640,height:480};
+  const constraints = {
+    video: deviceId
+      ? {deviceId:{exact:deviceId}, width:{ideal:res.width}, height:{ideal:res.height}}
+      : {facingMode:STATE.camFacing, width:{ideal:res.width}, height:{ideal:res.height}},
+    audio: false
+  };
+
+  try {
+    setWebcamStatus(false, '카메라 요청 중...');
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    webcamVideo.srcObject = stream;
+    await webcamVideo.play();
+
+    STATE.webcamActive = true;
+    document.getElementById('btnWebcamStart').disabled = true;
+    document.getElementById('btnWebcamStop').disabled  = false;
+    setWebcamStatus(true, '스트리밍');
+    hideNoStream();
+
+    // 장치 목록 갱신 (권한 허용 후 label 표시됨)
+    enumerateCameras();
+
+    STATE.fpsTimer = performance.now(); STATE.fpsCount = 0;
+    const track = stream.getVideoTracks()[0];
+    const settings = track.getSettings();
+    log(`웹캠 시작: ${settings.width}×${settings.height}`, 'ok');
+
+    webcamFrameLoop();
+  } catch(err) {
+    log(`웹캠 오류: ${err.message}`, 'err');
+    setWebcamStatus(false, '접근 실패');
+  }
+}
+
+function stopWebcam() {
+  STATE.webcamActive = false;
+  if (STATE.webcamRAF) { cancelAnimationFrame(STATE.webcamRAF); STATE.webcamRAF = null; }
+  if (webcamVideo.srcObject) {
+    webcamVideo.srcObject.getTracks().forEach(t => t.stop());
+    webcamVideo.srcObject = null;
+  }
+  document.getElementById('btnWebcamStart').disabled = false;
+  document.getElementById('btnWebcamStop').disabled  = true;
+  setWebcamStatus(false, '카메라 미연결');
+  showNoStream();
+  stopAuto();
+  log('웹캠 정지');
+}
+
+function webcamFrameLoop() {
+  if (!STATE.webcamActive) return;
+  const t0 = performance.now();
+  const W = videoCanvas.width, H = videoCanvas.height;
+  vCtx.save();
+  if (STATE.mirrorCam) { vCtx.scale(-1,1); vCtx.drawImage(webcamVideo,-W,0,W,H); }
+  else vCtx.drawImage(webcamVideo,0,0,W,H);
+  vCtx.restore();
+  afterFrame(W, H, t0);
+  STATE.webcamRAF = requestAnimationFrame(webcamFrameLoop);
+}
+
+function setCamFacing(f) {
+  STATE.camFacing = f;
+  document.getElementById('btnFront').classList.toggle('on', f==='user');
+  document.getElementById('btnRear').classList.toggle('on', f==='environment');
+  if (STATE.webcamActive) { stopWebcam(); setTimeout(startWebcam, 300); }
+}
+function toggleMirror() {
+  STATE.mirrorCam = !STATE.mirrorCam;
+  document.getElementById('btnMirror').classList.toggle('on', STATE.mirrorCam);
+  log(`미러: ${STATE.mirrorCam ? 'ON' : 'OFF'}`);
+}
+function toggleHD() {
+  STATE.useHD = !STATE.useHD;
+  document.getElementById('btnHD').classList.toggle('on', STATE.useHD);
+  log(`해상도: ${STATE.useHD ? 'HD(1280×720)' : 'SD(640×480)'}`);
+  if (STATE.webcamActive) { stopWebcam(); setTimeout(startWebcam, 300); }
+}
+
+function setWebcamStatus(ok, msg) {
+  const el = document.getElementById('webcamStatus');
+  const txt = document.getElementById('webcamText');
+  el.classList.toggle('ok', ok);
+  txt.textContent = msg;
+  if (STATE.srcMode === 'webcam') updateConnHeader(ok, msg);
+}
+
+/* ════════════════════════════════════════════════════
+   ESP32 모터 연결 (카메라와 분리)
+════════════════════════════════════════════════════ */
+let motorPingTimer = null;
+function toggleMotorConnect() {
+  if (STATE.motorConn) disconnectMotor();
+  else connectMotor();
+}
+async function connectMotor() {
+  const ip = document.getElementById('motorIpInput').value.trim();
+  STATE.ctrlUrl = `http://${ip}:81`;
+  setMotorStatus(false, '연결 중...');
+  try {
+    const res = await fetch(`${STATE.ctrlUrl}/status`, {cache:'no-store'});
+    if (!res.ok) throw new Error(res.status);
+    STATE.motorConn = true;
+    setMotorStatus(true, '연결됨');
+    document.getElementById('btnMotorConnect').textContent = '해제';
+    document.getElementById('btnAutoStart').disabled = false;
+    log(`모터 연결: ${STATE.ctrlUrl}`, 'ok');
+    // 주기적 핑
+    motorPingTimer = setInterval(pingMotor, 5000);
+  } catch(e) {
+    setMotorStatus(false, `실패: ${e.message}`);
+    log(`모터 연결 실패: ${e.message}`, 'err');
+  }
+}
+async function pingMotor() {
+  try {
+    const res = await fetch(`${STATE.ctrlUrl}/status`, {cache:'no-store'});
+    if (!res.ok) throw new Error();
+    if (!STATE.motorConn) { STATE.motorConn=true; setMotorStatus(true,'연결됨'); }
+  } catch {
+    STATE.motorConn = false;
+    setMotorStatus(false, '연결 끊김');
+    document.getElementById('btnAutoStart').disabled = true;
+    log('모터 연결 끊김', 'err');
+  }
+}
+function disconnectMotor() {
+  STATE.motorConn = false;
+  if (motorPingTimer) { clearInterval(motorPingTimer); motorPingTimer=null; }
+  setMotorStatus(false, '미연결');
+  document.getElementById('btnMotorConnect').textContent = '연결';
+  document.getElementById('btnAutoStart').disabled = true;
+  stopAuto();
+}
+function setMotorStatus(ok, msg) {
+  const el  = document.getElementById('motorStatus');
+  const txt = document.getElementById('motorText');
+  el.classList.toggle('ok', ok);
+  txt.textContent = msg;
+}
+
+/* ════════════════════════════════════════════════════
+   헤더 상태 업데이트
+════════════════════════════════════════════════════ */
+function updateConnHeader(ok, msg) {
+  document.getElementById('connDot').classList.toggle('on', ok);
+  document.getElementById('connLabel').textContent = ok ? '연결됨' : msg;
+}
+
+/* ════════════════════════════════════════════════════
+   프레임 공통 후처리 (차선 감지 + FPS)
+════════════════════════════════════════════════════ */
+function afterFrame(W, H, t0) {
+  // FPS
+  STATE.fpsCount++;
+  const now = performance.now();
+  if (now - STATE.fpsTimer >= 1000) {
+    STATE.fps = STATE.fpsCount * 1000 / (now - STATE.fpsTimer);
+    STATE.fpsCount = 0; STATE.fpsTimer = now;
+    const f = STATE.fps.toFixed(1);
+    document.getElementById('fpsVal').textContent = f;
+    document.getElementById('fpsHdr').textContent = f;
+    document.getElementById('hudFps').textContent = f + ' FPS';
+  }
+
+  if (STATE.detecting) {
+    const result = detectLanes(W, H);
+    drawOverlay(result, W, H);
+    drawMiniViews(result);
+    updateStats(result);
+    if (STATE.autonomous) autoControl(result);
+    document.getElementById('procMs').textContent = (performance.now()-t0).toFixed(0)+' ms';
+  } else {
+    oCtx.clearRect(0, 0, W, H);
+  }
+}
+
+/* ════════════════════════════════════════════════════
+   HSV 변환 (OpenCV 규격: H 0-180, S/V 0-255)
+════════════════════════════════════════════════════ */
+function rgbToHsv(r,g,b) {
+  const rf=r/255, gf=g/255, bf=b/255;
+  const max=Math.max(rf,gf,bf), min=Math.min(rf,gf,bf), d=max-min;
+  let h=0;
+  if (d > 0.001) {
+    if (max===rf)      h = ((gf-bf)/d) % 6;
+    else if (max===gf) h = (bf-rf)/d + 2;
+    else               h = (rf-gf)/d + 4;
+    h = h*30; if(h<0)h+=180;
+  }
+  return [h, max<0.001?0:(d/max)*255, max*255];
+}
+
+function inRange(h,s,v,p,cm) {
+  if (s<p.sMin||s>p.sMax||v<p.vMin||v>p.vMax) return false;
+  if (cm==='red') return (h<=p.hMax)||(h>=180-p.hMax); // 양쪽 끝 빨강
+  return h>=p.hMin && h<=p.hMax;
+}
+
+/* ════════════════════════════════════════════════════
+   차선 감지 핵심 알고리즘
+   ─ HSV 마스크 → ROI → 행 스캔 → 선형 회귀
+   ─ 양쪽 차선 중앙 = 화면 중앙 기준 오프셋 계산
+════════════════════════════════════════════════════ */
+function detectLanes(dispW, dispH) {
+  // 1. 다운스케일 복사
+  procCtx.drawImage(videoCanvas, 0, 0, PROC_W, PROC_H);
+  const {data:pix} = procCtx.getImageData(0, 0, PROC_W, PROC_H);
+  const p=currentHSV, cm=STATE.colorMode;
+
+  // 2. HSV 마스크
+  const mask = new Uint8Array(PROC_W * PROC_H);
+  for (let i=0,j=0; i<pix.length; i+=4,j++) {
+    const [h,s,v] = rgbToHsv(pix[i],pix[i+1],pix[i+2]);
+    mask[j] = inRange(h,s,v,p,cm) ? 255 : 0;
+  }
+
+  // 3. 사다리꼴 ROI (하단 40% 영역, 화면 상단 60%는 무시)
+  const roiTop    = Math.floor(PROC_H * 0.55);
+  const roiBottom = Math.floor(PROC_H * 0.93);
+  for (let y=0; y<PROC_H; y++) {
+    for (let x=0; x<PROC_W; x++) {
+      if (y<roiTop || y>roiBottom) { mask[y*PROC_W+x]=0; continue; }
+      // 사다리꼴: 상단에서 좌우 15% 안쪽 축소
+      const ratio = (y-roiTop)/(roiBottom-roiTop);
+      const edgeL = Math.floor(PROC_W*0.05 + PROC_W*0.15*(1-ratio));
+      const edgeR = Math.floor(PROC_W*0.95 - PROC_W*0.15*(1-ratio));
+      if (x<edgeL || x>edgeR) mask[y*PROC_W+x]=0;
+    }
+  }
+
+  // 4. 행 스캔: 좌/우 차선 포인트 수집
+  //    화면 중앙 기준 ── 왼쪽 절반에서 가장 오른쪽 픽셀 = 왼쪽 차선 에지
+  //                    ── 오른쪽 절반에서 가장 왼쪽 픽셀 = 오른쪽 차선 에지
+  const cx = PROC_W / 2;
+  const leftPts=[], rightPts=[];
+  for (let y=roiBottom; y>=roiTop; y-=2) {
+    // 왼쪽 차선 에지: 중앙에서 왼쪽 방향으로 첫 번째 밝은 픽셀
+    for (let x=Math.floor(cx*0.95); x>=Math.floor(PROC_W*0.04); x--) {
+      if (mask[y*PROC_W+x]) { leftPts.push([x,y]); break; }
+    }
+    // 오른쪽 차선 에지: 중앙에서 오른쪽 방향으로 첫 번째 밝은 픽셀
+    for (let x=Math.floor(cx*1.05); x<Math.floor(PROC_W*0.96); x++) {
+      if (mask[y*PROC_W+x]) { rightPts.push([x,y]); break; }
+    }
+  }
+
+  // 5. 선형 회귀 x = m*y + b (수직선에 가까우므로 y를 독립변수로)
+  const leftLine  = linReg(leftPts);
+  const rightLine = linReg(rightPts);
+
+  // 6. ─── 핵심: 양쪽 차선 중앙 = 자동차가 따라가야 할 경로 ───
+  //    평가 지점: 화면 하단 80% (차량에 가장 가까운 지점)
+  //    상단 평가: 화면 62% 지점 (방향 계산용)
+  const evalY = Math.floor(PROC_H * 0.80);
+  const topY  = Math.floor(PROC_H * 0.62);
+  const scaleX = dispW / PROC_W;
+  const scaleY = dispH / PROC_H;
+  const screenCx = PROC_W / 2;        // 화면(카메라) 중앙 X
+  const idealHalfW = PROC_W * 0.25;   // 차선 1개만 있을 때 추정 차선폭 절반
+
+  let offset=null, angle=null, centerLine=null;
+  let lx_eval=null, rx_eval=null, lx_top=null, rx_top=null;
+
+  if (leftLine)  { lx_eval = leftLine.m*evalY  + leftLine.b;  lx_top = leftLine.m*topY  + leftLine.b; }
+  if (rightLine) { rx_eval = rightLine.m*evalY + rightLine.b; rx_top = rightLine.m*topY + rightLine.b; }
+
+  if (lx_eval!==null && rx_eval!==null) {
+    // ── 양쪽 차선 모두 검출: 정확한 중앙 계산 ──────────
+    const cx_eval = (lx_eval + rx_eval) / 2;
+    const cx_top  = (lx_top  + rx_top ) / 2;
+    offset = cx_eval - screenCx;       // 양수: 차선 중앙이 화면 오른쪽 → 우회전 필요
+    angle  = Math.atan2(cx_eval - cx_top, evalY - topY) * 180 / Math.PI;
+    centerLine = {
+      x1: cx_top  * scaleX, y1: topY  * scaleY,
+      x2: cx_eval * scaleX, y2: evalY * scaleY,
+    };
+  } else if (lx_eval!==null) {
+    // ── 왼쪽 차선만: 오른쪽으로 이상적 폭만큼 이동해서 추정 ──
+    const cx_eval = lx_eval + idealHalfW;
+    const cx_top  = lx_top  + idealHalfW;
+    offset = cx_eval - screenCx;
+    angle  = Math.atan2(cx_eval - cx_top, evalY - topY) * 180 / Math.PI;
+    centerLine = {
+      x1: cx_top  * scaleX, y1: topY  * scaleY,
+      x2: cx_eval * scaleX, y2: evalY * scaleY,
+    };
+  } else if (rx_eval!==null) {
+    // ── 오른쪽 차선만: 왼쪽으로 이상적 폭만큼 이동해서 추정 ──
+    const cx_eval = rx_eval - idealHalfW;
+    const cx_top  = rx_top  - idealHalfW;
+    offset = cx_eval - screenCx;
+    angle  = Math.atan2(cx_eval - cx_top, evalY - topY) * 180 / Math.PI;
+    centerLine = {
+      x1: cx_top  * scaleX, y1: topY  * scaleY,
+      x2: cx_eval * scaleX, y2: evalY * scaleY,
+    };
+  }
+
+  STATE.lastOffset = offset;
+  STATE.lastAngle  = angle;
+
+  return {mask, leftPts, rightPts, leftLine, rightLine, centerLine,
+          lx_eval, rx_eval, lx_top, rx_top,
+          offset, angle, roiTop, roiBottom, scaleX, scaleY, dispW, dispH,
+          evalY, topY, screenCx};
+}
+
+/* 선형 회귀: x = m*y + b */
+function linReg(pts) {
+  if (pts.length < 6) return null;
+  const n=pts.length;
+  let sx=0,sy=0,sxy=0,syy=0;
+  for(const[x,y]of pts){sx+=x;sy+=y;sxy+=x*y;syy+=y*y}
+  const d = n*syy - sy*sy;
+  if (Math.abs(d)<1) return null;
+  const m=(n*sxy-sx*sy)/d, b=(sx-m*sy)/n;
+  return {m,b,n};
+}
+
+/* ════════════════════════════════════════════════════
+   오버레이 그리기 (메인 캔버스)
+════════════════════════════════════════════════════ */
+function drawOverlay(r, W, H) {
+  oCtx.clearRect(0,0,W,H);
+  if (!r) return;
+  const {leftLine,rightLine,centerLine,offset,angle,
+         lx_eval,rx_eval,lx_top,rx_top,
+         scaleX,scaleY,roiTop,roiBottom,evalY,topY,screenCx} = r;
+
+  const botY = roiBottom, tY = topY;
+
+  // ─ 헬퍼
+  const lx = (ln,y) => (ln.m*y+ln.b)*scaleX;
+  const ly = y => y*scaleY;
+
+  // ─ ROI 사다리꼴 (점선)
+  oCtx.save(); oCtx.strokeStyle='rgba(0,229,255,0.25)'; oCtx.lineWidth=1; oCtx.setLineDash([5,4]);
+  oCtx.beginPath();
+  oCtx.moveTo(W*0.05+W*0.15, ly(roiTop));
+  oCtx.lineTo(W*0.95-W*0.15, ly(roiTop));
+  oCtx.lineTo(W*0.95, ly(botY));
+  oCtx.lineTo(W*0.05, ly(botY));
+  oCtx.closePath(); oCtx.stroke();
+  oCtx.setLineDash([]); oCtx.restore();
+
+  // ─ 화면 중앙 수직선 (분홍, 점선)
+  oCtx.save(); oCtx.strokeStyle='rgba(255,0,220,0.45)'; oCtx.lineWidth=1.5; oCtx.setLineDash([4,5]);
+  oCtx.beginPath(); oCtx.moveTo(W/2,0); oCtx.lineTo(W/2,H); oCtx.stroke();
+  oCtx.setLineDash([]); oCtx.restore();
+
+  // ─ 왼쪽 차선선 (초록)
+  if (leftLine) {
+    oCtx.save(); oCtx.strokeStyle='#00ff88'; oCtx.lineWidth=3; oCtx.shadowColor='#00ff88'; oCtx.shadowBlur=8;
+    oCtx.beginPath(); oCtx.moveTo(lx(leftLine,botY),ly(botY)); oCtx.lineTo(lx(leftLine,tY),ly(tY)); oCtx.stroke();
+    oCtx.fillStyle='#00ff88'; oCtx.font='bold 12px monospace';
+    oCtx.fillText('L', lx(leftLine,tY)-18, ly(tY));
+    oCtx.restore();
+  }
+
+  // ─ 오른쪽 차선선 (초록)
+  if (rightLine) {
+    oCtx.save(); oCtx.strokeStyle='#00ff88'; oCtx.lineWidth=3; oCtx.shadowColor='#00ff88'; oCtx.shadowBlur=8;
+    oCtx.beginPath(); oCtx.moveTo(lx(rightLine,botY),ly(botY)); oCtx.lineTo(lx(rightLine,tY),ly(tY)); oCtx.stroke();
+    oCtx.fillStyle='#00ff88'; oCtx.font='bold 12px monospace';
+    oCtx.fillText('R', lx(rightLine,tY)+5, ly(tY));
+    oCtx.restore();
+  }
+
+  // ─ 차선 사이 채우기 (반투명)
+  if (leftLine && rightLine) {
+    oCtx.save(); oCtx.fillStyle='rgba(0,255,136,0.06)';
+    oCtx.beginPath();
+    oCtx.moveTo(lx(leftLine,botY),ly(botY));
+    oCtx.lineTo(lx(leftLine,tY), ly(tY));
+    oCtx.lineTo(lx(rightLine,tY),ly(tY));
+    oCtx.lineTo(lx(rightLine,botY),ly(botY));
+    oCtx.closePath(); oCtx.fill(); oCtx.restore();
+  }
+
+  // ─ 중앙선 (파란색, 굵게) ← 차량이 따라야 할 경로
+  if (centerLine) {
+    oCtx.save(); oCtx.strokeStyle='#2979ff'; oCtx.lineWidth=4; oCtx.shadowColor='#2979ff'; oCtx.shadowBlur=14;
+    oCtx.beginPath(); oCtx.moveTo(centerLine.x1,centerLine.y1); oCtx.lineTo(centerLine.x2,centerLine.y2); oCtx.stroke();
+    oCtx.restore();
+
+    // 중앙선 끝점 원
+    oCtx.save(); oCtx.fillStyle='#2979ff'; oCtx.shadowColor='#2979ff'; oCtx.shadowBlur=10;
+    oCtx.beginPath(); oCtx.arc(centerLine.x2,centerLine.y2,5,0,Math.PI*2); oCtx.fill();
+    oCtx.restore();
+  }
+
+  // ─ 오프셋 화살표 (평가선에서 화면 중앙 → 차선 중앙)
+  if (offset !== null) {
+    const evalYD = evalY * scaleY;
+    const fromX  = W/2;
+    const toX    = fromX + offset*scaleX;
+    const col    = Math.abs(offset)<15 ? var_green : Math.abs(offset)<35 ? var_amber : var_red;
+
+    // 화살표 선
+    oCtx.save(); oCtx.strokeStyle=col; oCtx.lineWidth=2.5; oCtx.shadowColor=col; oCtx.shadowBlur=8;
+    oCtx.beginPath(); oCtx.moveTo(fromX,evalYD); oCtx.lineTo(toX,evalYD); oCtx.stroke();
+    // 화살표 머리
+    const dir = toX>fromX?1:-1;
+    oCtx.beginPath(); oCtx.moveTo(toX,evalYD); oCtx.lineTo(toX-dir*9,evalYD-5); oCtx.lineTo(toX-dir*9,evalYD+5); oCtx.closePath();
+    oCtx.fillStyle=col; oCtx.fill(); oCtx.restore();
+
+    // 평가 라인 (수평)
+    oCtx.save(); oCtx.strokeStyle='rgba(255,255,255,0.15)'; oCtx.lineWidth=1; oCtx.setLineDash([3,6]);
+    oCtx.beginPath(); oCtx.moveTo(0,evalYD); oCtx.lineTo(W,evalYD); oCtx.stroke();
+    oCtx.setLineDash([]); oCtx.restore();
+  }
+
+  // ─ 차선 상태 배너 업데이트
+  const hudLane = document.getElementById('hudLane');
+  if (!leftLine && !rightLine) {
+    hudLane.textContent='차선 미검출'; hudLane.className='hud-center none';
+  } else if (leftLine && rightLine) {
+    hudLane.textContent='양쪽 차선 추종'; hudLane.className='hud-center both';
+  } else {
+    hudLane.textContent= leftLine?'왼쪽 차선 추정':'오른쪽 차선 추정';
+    hudLane.className='hud-center one';
+  }
+}
+
+const var_green='#00ff88', var_amber='#ffaa00', var_red='#ff3355';
+
+/* ════════════════════════════════════════════════════
+   미니뷰 (마스크 / 포인트 / 중앙선)
+════════════════════════════════════════════════════ */
+function drawMiniViews(r) {
+  if (!r) return;
+  const {mask,leftPts,rightPts,leftLine,rightLine,centerLine,roiTop,roiBottom,
+         lx_eval,rx_eval,evalY,scaleX,scaleY} = r;
+
+  // 마스크뷰
+  const mW=maskCanvas.width, mH=maskCanvas.height;
+  mCtx.clearRect(0,0,mW,mH);
+  const tmp = new OffscreenCanvas(PROC_W,PROC_H);
+  const tx  = tmp.getContext('2d');
+  const id  = tx.createImageData(PROC_W,PROC_H);
+  const d   = id.data;
+  for(let i=0;i<mask.length;i++){d[i*4]=mask[i];d[i*4+1]=mask[i];d[i*4+2]=mask[i];d[i*4+3]=255}
+  tx.putImageData(id,0,0);
+  mCtx.drawImage(tmp,0,0,mW,mH);
+  const syM=mH/PROC_H;
+  mCtx.strokeStyle='rgba(0,229,255,0.4)';mCtx.lineWidth=1;
+  mCtx.beginPath();mCtx.moveTo(0,roiTop*syM);mCtx.lineTo(mW,roiTop*syM);mCtx.stroke();
+  mCtx.beginPath();mCtx.moveTo(0,roiBottom*syM);mCtx.lineTo(mW,roiBottom*syM);mCtx.stroke();
+
+  // 포인트뷰
+  const eW=edgeCanvas.width, eH=edgeCanvas.height;
+  eCtx.clearRect(0,0,eW,eH); eCtx.fillStyle='#050810'; eCtx.fillRect(0,0,eW,eH);
+  const exS=eW/PROC_W, eyS=eH/PROC_H;
+  eCtx.strokeStyle='rgba(0,229,255,0.2)';eCtx.lineWidth=1;eCtx.setLineDash([2,4]);
+  eCtx.beginPath();eCtx.moveTo(0,roiTop*eyS);eCtx.lineTo(eW,roiTop*eyS);eCtx.stroke();
+  eCtx.beginPath();eCtx.moveTo(0,roiBottom*eyS);eCtx.lineTo(eW,roiBottom*eyS);eCtx.stroke();
+  eCtx.setLineDash([]);
+  eCtx.fillStyle='rgba(0,255,136,0.8)';
+  for(const[x,y]of leftPts) eCtx.fillRect(x*exS-1,y*eyS-1,2,2);
+  eCtx.fillStyle='rgba(0,229,255,0.8)';
+  for(const[x,y]of rightPts) eCtx.fillRect(x*exS-1,y*eyS-1,2,2);
+  // 중앙선
+  eCtx.strokeStyle='#2979ff';eCtx.lineWidth=2;
+  eCtx.beginPath();eCtx.moveTo(eW/2,0);eCtx.lineTo(eW/2,eH);eCtx.stroke();
+
+  // 중앙선뷰 (그래프 형태: 오프셋 시계열)
+  const cW=centerCanvas.width, cH=centerCanvas.height;
+  cCtx.clearRect(0,0,cW,cH); cCtx.fillStyle='#050810'; cCtx.fillRect(0,0,cW,cH);
+  // 중앙 수직선
+  cCtx.strokeStyle='rgba(0,229,255,0.2)';cCtx.lineWidth=1;
+  cCtx.beginPath();cCtx.moveTo(cW/2,0);cCtx.lineTo(cW/2,cH);cCtx.stroke();
+  // 오프셋 바
+  if (r.offset !== null) {
+    const off=r.offset, maxOff=PROC_W/2;
+    const barW = Math.min(Math.abs(off)/maxOff*cW*0.45, cW*0.45);
+    const col  = Math.abs(off)<15?var_green:Math.abs(off)<35?var_amber:var_red;
+    cCtx.fillStyle=col;
+    if (off>0) cCtx.fillRect(cW/2, cH*0.35, barW, cH*0.3);
+    else       cCtx.fillRect(cW/2-barW, cH*0.35, barW, cH*0.3);
+    cCtx.fillStyle='rgba(255,255,255,0.7)';
+    cCtx.font='9px monospace';cCtx.textAlign='center';
+    cCtx.fillText(`${off.toFixed(0)}px`, cW/2, cH-6);
+  }
+  // 양쪽 차선 상태 표시
+  cCtx.font='9px monospace';cCtx.textAlign='left';cCtx.fillStyle='rgba(0,255,136,0.7)';
+  if(leftLine)  cCtx.fillText('L✓', 4, 12);
+  if(rightLine) { cCtx.textAlign='right'; cCtx.fillText('R✓', cW-4, 12); }
+}
+
+/* ════════════════════════════════════════════════════
+   상태 업데이트
+════════════════════════════════════════════════════ */
+function updateStats(r) {
+  if (!r) return;
+  const {leftPts,rightPts,offset,angle} = r;
+  document.getElementById('laneCount').textContent =
+    `${leftPts.length>0?leftPts.length:'--'} / ${rightPts.length>0?rightPts.length:'--'}`;
+
+  if (offset !== null) {
+    const os = offset.toFixed(1)+' px';
+    document.getElementById('offsetVal').textContent = os;
+    document.getElementById('offsetHdr').textContent = os;
+    document.getElementById('hudOffset').textContent = `OFFSET: ${os}`;
+    const cls = Math.abs(offset)<15?'ok':Math.abs(offset)<50?'warn':'err';
+    document.getElementById('offsetVal').className = 'stat-val '+cls;
+  }
+  if (angle !== null) {
+    const as = angle.toFixed(1)+'°';
+    document.getElementById('angleVal').textContent = as;
+    document.getElementById('angleHdr').textContent = as;
+  }
+}
+
+/* ════════════════════════════════════════════════════
+   색상 / HSV 설정
+════════════════════════════════════════════════════ */
+function selectColor(color, btn) {
+  document.querySelectorAll('.btn-color').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  STATE.colorMode = color;
+  applyHSVPreset(color);
+  const names={white:'WHITE',red:'RED',black:'BLACK',blue:'BLUE',yellow:'YELLOW'};
+  document.getElementById('hudColor').textContent = 'COLOR: '+names[color];
+  log(`색상: ${color}`);
+}
+function applyHSVPreset(color) {
+  const p=HSV_PRESETS[color]; currentHSV={...p};
+  ['hMin','hMax','sMin','sMax','vMin','vMax'].forEach(k=>{
+    const el=document.getElementById(k); el.value=p[k];
+    document.getElementById(k+'V').textContent=p[k];
+  });
+}
+function onHsv() {
+  ['hMin','hMax','sMin','sMax','vMin','vMax'].forEach(k=>{
+    currentHSV[k]=parseInt(document.getElementById(k).value);
+    document.getElementById(k+'V').textContent=currentHSV[k];
+  });
+}
+function onDetectToggle() {
+  STATE.detecting=document.getElementById('detectToggle').checked;
+  log(`차선 감지: ${STATE.detecting?'ON':'OFF'}`);
+}
+
+/* ════════════════════════════════════════════════════
+   모터 수동 제어
+════════════════════════════════════════════════════ */
+function startCmd(dir) {
+  if (STATE.autonomous) return;
+  sendMotor(dir, parseInt(document.getElementById('speedSlider').value));
+  ['dFwd','dBwd','dLeft','dRight'].forEach(id=>document.getElementById(id)?.classList.remove('pressed'));
+  const map={forward:'dFwd',backward:'dBwd',left:'dLeft',right:'dRight'};
+  if (map[dir]) document.getElementById(map[dir])?.classList.add('pressed');
+}
+function stopCmd() {
+  if (STATE.autonomous) return;
+  setTimeout(()=>{
+    sendMotor('stop',0);
+    ['dFwd','dBwd','dLeft','dRight'].forEach(id=>document.getElementById(id)?.classList.remove('pressed'));
+  },80);
+}
+function sendMotor(dir, speed) {
+  if (!STATE.motorConn && dir!=='stop') { log('모터 미연결','err'); return; }
+  fetch(`${STATE.ctrlUrl}/motor?dir=${dir}&speed=${speed}`,{cache:'no-store'})
+    .catch(e=>log(`모터: ${e.message}`,'err'));
+  document.getElementById('cmdVal').textContent=dir.toUpperCase();
+}
+
+/* ════════════════════════════════════════════════════
+   자율주행 (오프셋 + 각도 복합 제어)
+   ─ offset > 0: 차선 중앙이 화면 오른쪽  → 우회전
+   ─ offset < 0: 차선 중앙이 화면 왼쪽   → 좌회전
+   ─ angle  > 0: 차선이 오른쪽으로 굽음  → 우회전
+════════════════════════════════════════════════════ */
+const AUTO = {
+  fwdSpd:160, turnSpd:130, slowSpd:110,
+  offSm:15, offMd:35, offLg:60,
+  angSm:5,  angMd:15, angLg:30,
+  maxStop:10,
+};
+
+function startAuto() {
+  if (!STATE.motorConn) { log('모터 ESP32 미연결','err'); return; }
+  STATE.autonomous=true; STATE.stopCount=0; STATE.lastCmd='stop';
+  document.getElementById('btnAutoStart').disabled=true;
+  document.getElementById('btnAutoStop').disabled=false;
+  document.getElementById('hudMode').textContent='● AUTO DRIVE';
+  document.getElementById('hudMode').style.color='#00ff88';
+  log('자율주행 시작','ok');
+  STATE.autoInterval=setInterval(()=>{
+    if(STATE.autonomous) autoControl({offset:STATE.lastOffset,angle:STATE.lastAngle});
+  },100);
+}
+function stopAuto() {
+  STATE.autonomous=false;
+  if(STATE.autoInterval){clearInterval(STATE.autoInterval);STATE.autoInterval=null;}
+  document.getElementById('btnAutoStart').disabled=!STATE.motorConn;
+  document.getElementById('btnAutoStop').disabled=true;
+  document.getElementById('hudMode').textContent='● MANUAL';
+  document.getElementById('hudMode').style.color='';
+  sendMotor('stop',0);
+  log('자율주행 정지');
+}
+
+function autoControl({offset,angle}) {
+  if (!STATE.autonomous) return;
+  const {cmd,speed}=calcAutoCmd(offset,angle);
+  if (cmd!==STATE.lastCmd) { sendMotor(cmd,speed); STATE.lastCmd=cmd; }
+}
+
+function calcAutoCmd(offset,angle) {
+  const A=AUTO;
+  if (offset===null) {
+    STATE.stopCount++;
+    if(STATE.stopCount>A.maxStop){STATE.stopCount=0;return{cmd:'forward',speed:A.slowSpd};}
+    return {cmd:'stop',speed:0};
+  }
+  STATE.stopCount=0;
+
+  // 오프셋 기반 (차선 중앙 ↔ 화면 중앙)
+  let offCmd='forward', offInt='center';
+  if      (Math.abs(offset)>A.offLg) {offCmd=offset>0?'right':'left'; offInt='large';}
+  else if (Math.abs(offset)>A.offMd) {offCmd=offset>0?'right':'left'; offInt='medium';}
+  else if (Math.abs(offset)>A.offSm) {offCmd=offset>0?'right':'left'; offInt='small';}
+
+  // 각도 기반 (커브 예측)
+  let angCmd='forward', angInt='straight';
+  if (angle!==null) {
+    const ab=Math.abs(angle);
+    if      (ab>A.angLg) {angCmd=angle>0?'right':'left'; angInt='sharp';}
+    else if (ab>A.angMd) {angCmd=angle>0?'right':'left'; angInt='medium';}
+    else if (ab>A.angSm) {angCmd=angle>0?'right':'left'; angInt='gentle';}
+  }
+
+  let cmd='forward', speed=A.fwdSpd;
+  if      (offCmd==='forward'&&angCmd==='forward')       {cmd='forward'; speed=A.fwdSpd;}
+  else if (offCmd===angCmd&&offCmd!=='forward')           {cmd=offCmd;   speed=A.turnSpd-20;}
+  else if (offCmd!=='forward')                            {cmd=offCmd;   speed=offInt==='small'?A.slowSpd:A.turnSpd;}
+  else if (angCmd!=='forward')                            {cmd=angCmd;   speed=angInt==='sharp'?A.turnSpd-30:angInt==='medium'?A.turnSpd:A.slowSpd;}
+
+  document.getElementById('cmdVal').textContent=`${cmd.toUpperCase()}(${speed})`;
+  return {cmd,speed};
+}
+
+/* ════════════════════════════════════════════════════
+   로그
+════════════════════════════════════════════════════ */
+const logBox=document.getElementById('logBox');
+function log(msg,type=''){
+  const p=document.createElement('p');
+  p.textContent=`[${new Date().toLocaleTimeString('ko',{hour12:false})}] ${msg}`;
+  if(type)p.className=type;
+  logBox.appendChild(p); logBox.scrollTop=logBox.scrollHeight;
+  if(logBox.children.length>80)logBox.removeChild(logBox.firstChild);
+}
+
+/* ════════════════════════════════════════════════════
+   터치 이벤트 보호
+════════════════════════════════════════════════════ */
+document.querySelectorAll('.dpad-btn').forEach(btn=>{
+  btn.addEventListener('contextmenu',e=>e.preventDefault());
+  btn.addEventListener('touchstart',e=>e.preventDefault(),{passive:false});
+});
+</script>
+</body>
+</html>
